@@ -1,4 +1,8 @@
+
+require('dotenv').config(); 
+
 const { App } = require('@slack/bolt');
+
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -16,6 +20,15 @@ let krCounter = 1;
 // Helper function to get user from command
 function getUser(body) {
   return body.user.username || body.user.name || body.user.id;
+}
+
+// Add text field to all messages for accessibility
+function sendMessage(client, channel, blocks, fallbackText) {
+  return client.chat.postMessage({
+    channel: channel,
+    text: fallbackText,
+    blocks: blocks
+  });
 }
 
 // === MAIN MENU COMMAND ===
@@ -89,6 +102,10 @@ app.command('/okr', async ({ command, ack, client }) => {
     });
   } catch (error) {
     console.error('Error opening main menu:', error);
+    await client.chat.postMessage({
+      channel: command.user_id,
+      text: '❌ Error opening OKR menu. Please try again.'
+    });
   }
 });
 
@@ -177,34 +194,35 @@ app.view('create_objective_modal', async ({ ack, body, view, client }) => {
     objectives.push(objective);
 
     // Send success message
-    await client.chat.postMessage({
-      channel: body.user.id,
-      blocks: [
-        {
-          type: 'section',
-          text: { 
-            type: 'mrkdwn', 
-            text: `✅ *Objective Created Successfully!*\n\n🎯 *${objId}:* ${title}\n👤 *Owner:* <@${owner}>\n📊 *Progress:* 0%` 
-          }
-        },
-        {
-          type: 'section',
-          text: { 
-            type: 'mrkdwn', 
-            text: `💡 *Next step:* Add key results to measure progress toward this objective.` 
-          },
-          accessory: {
-            type: 'button',
-            text: { type: 'plain_text', text: '🔑 Add Key Result' },
-            action_id: 'create_key_result',
-            value: objId
-          }
+    await sendMessage(client, body.user.id, [
+      {
+        type: 'section',
+        text: { 
+          type: 'mrkdwn', 
+          text: `✅ *Objective Created Successfully!*\n\n🎯 *${objId}:* ${title}\n👤 *Owner:* <@${owner}>\n📊 *Progress:* 0%` 
         }
-      ]
-    });
+      },
+      {
+        type: 'section',
+        text: { 
+          type: 'mrkdwn', 
+          text: `💡 *Next step:* Add key results to measure progress toward this objective.` 
+        },
+        accessory: {
+          type: 'button',
+          text: { type: 'plain_text', text: '🔑 Add Key Result' },
+          action_id: 'create_key_result',
+          value: objId
+        }
+      }
+    ], `Objective Created: ${title}`);
 
   } catch (error) {
     console.error('Error creating objective:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error creating objective. Please try again.'
+    });
   }
 });
 
@@ -312,38 +330,39 @@ app.view('create_key_result_modal', async ({ ack, body, view, client }) => {
     keyResults.push(keyResult);
 
     // Send success message
-    await client.chat.postMessage({
-      channel: body.user.id,
-      blocks: [
-        {
-          type: 'section',
-          text: { 
-            type: 'mrkdwn', 
-            text: `✅ *Key Result Created Successfully!*\n\n🔑 *${krId}:* ${title}\n🎯 *For:* ${objId} - ${objective.title}\n👤 *Owner:* <@${owner}>\n📊 *Progress:* 0%` 
-          }
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: { type: 'plain_text', text: '📈 Update Progress' },
-              action_id: 'update_kr_progress',
-              value: krId
-            },
-            {
-              type: 'button',
-              text: { type: 'plain_text', text: '🔑 Add Another KR' },
-              action_id: 'create_key_result',
-              value: objId
-            }
-          ]
+    await sendMessage(client, body.user.id, [
+      {
+        type: 'section',
+        text: { 
+          type: 'mrkdwn', 
+          text: `✅ *Key Result Created Successfully!*\n\n🔑 *${krId}:* ${title}\n🎯 *For:* ${objId} - ${objective.title}\n👤 *Owner:* <@${owner}>\n📊 *Progress:* 0%` 
         }
-      ]
-    });
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '📈 Update Progress' },
+            action_id: 'update_kr_progress',
+            value: krId
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '🔑 Add Another KR' },
+            action_id: 'create_key_result',
+            value: objId
+          }
+        ]
+      }
+    ], `Key Result Created: ${title}`);
 
   } catch (error) {
     console.error('Error creating key result:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error creating key result. Please try again.'
+    });
   }
 });
 
@@ -364,7 +383,6 @@ app.action('update_progress', async ({ ack, body, client }) => {
     });
 
     keyResults.forEach(kr => {
-      const obj = objectives.find(o => o.id === kr.objectiveId);
       allItems.push({
         text: { type: 'plain_text', text: `🔑 ${kr.id}: ${kr.text} (${kr.progress}%)` },
         value: `kr_${kr.id}`
@@ -447,7 +465,7 @@ app.view('update_progress_modal', async ({ ack, body, view, client }) => {
 
         await client.chat.postMessage({
           channel: body.user.id,
-          text: `${changeEmoji} *Objective Updated!*\n🎯 *${id}:* ${objective.title}\n📊 *Progress:* ${oldProgress}% → ${newProgress}% ${progressEmoji}`
+          text: `${changeEmoji} Objective Updated! ${id}: ${objective.title} - Progress: ${oldProgress}% → ${newProgress}% ${progressEmoji}`
         });
       }
     } else if (type === 'kr') {
@@ -471,13 +489,17 @@ app.view('update_progress_modal', async ({ ack, body, view, client }) => {
 
         await client.chat.postMessage({
           channel: body.user.id,
-          text: `${changeEmoji} *Key Result Updated!*\n🔑 *${id}:* ${keyResult.text}\n📊 *Progress:* ${oldProgress}% → ${newProgress}% ${progressEmoji}\n🎯 *Objective ${keyResult.objectiveId} now at:* ${avgProgress}%`
+          text: `${changeEmoji} Key Result Updated! ${id}: ${keyResult.text} - Progress: ${oldProgress}% → ${newProgress}% ${progressEmoji}\nObjective ${keyResult.objectiveId} now at: ${avgProgress}%`
         });
       }
     }
 
   } catch (error) {
     console.error('Error updating progress:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error updating progress. Please try again.'
+    });
   }
 });
 
@@ -529,13 +551,14 @@ app.action('view_okrs', async ({ ack, body, client }) => {
       blocks.push({ type: 'divider' });
     });
 
-    await client.chat.postMessage({
-      channel: body.user.id,
-      blocks: blocks
-    });
+    await sendMessage(client, body.user.id, blocks, 'All Objectives & Key Results');
 
   } catch (error) {
     console.error('Error viewing OKRs:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error viewing OKRs. Please try again.'
+    });
   }
 });
 
@@ -590,13 +613,14 @@ app.action('generate_report', async ({ ack, body, client }) => {
       });
     });
 
-    await client.chat.postMessage({
-      channel: body.user.id,
-      blocks: reportBlocks
-    });
+    await sendMessage(client, body.user.id, reportBlocks, `OKR Report - ${totalObjs} objectives, ${totalKRs} key results`);
 
   } catch (error) {
     console.error('Error generating report:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error generating report. Please try again.'
+    });
   }
 });
 
@@ -681,7 +705,7 @@ app.view('delete_okr_modal', async ({ ack, body, view, client }) => {
 
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ *Objective Deleted!*\n🎯 Deleted: "${objective.title}"\n🔑 Also deleted ${relatedKRs.length} related key results`
+        text: `✅ Objective Deleted! Deleted: "${objective.title}" and ${relatedKRs.length} related key results`
       });
     } else if (type === 'kr') {
       // Delete key result
@@ -700,12 +724,16 @@ app.view('delete_okr_modal', async ({ ack, body, view, client }) => {
 
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `✅ *Key Result Deleted!*\n🔑 Deleted: "${keyResult.text}"`
+        text: `✅ Key Result Deleted! Deleted: "${keyResult.text}"`
       });
     }
 
   } catch (error) {
     console.error('Error deleting OKR:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error deleting OKR. Please try again.'
+    });
   }
 });
 
@@ -788,12 +816,16 @@ app.view('quick_update_kr_modal', async ({ ack, body, view, client }) => {
 
       await client.chat.postMessage({
         channel: body.user.id,
-        text: `${changeEmoji} *Quick Update Complete!*\n🔑 *${krId}:* ${keyResult.text}\n📊 *Progress:* ${oldProgress}% → ${newProgress}% ${progressEmoji}\n🎯 *Objective ${keyResult.objectiveId} now at:* ${avgProgress}%`
+        text: `${changeEmoji} Quick Update Complete! ${krId}: ${keyResult.text} - Progress: ${oldProgress}% → ${newProgress}% ${progressEmoji}\nObjective ${keyResult.objectiveId} now at: ${avgProgress}%`
       });
     }
 
   } catch (error) {
     console.error('Error in quick update:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error updating progress. Please try again.'
+    });
   }
 });
 
@@ -802,16 +834,17 @@ app.view('quick_update_kr_modal', async ({ ack, body, view, client }) => {
 app.command('/okr-help', async ({ command, ack, say }) => {
   await ack();
   
-  const helpText = `🤖 *OKR Bot - Now with Easy Forms!*
+  const helpText = `🤖 *OKR Bot - Easy Forms Interface!*
 
-*🎯 NEW: Use the main menu for everything:*
-• \`/okr\` - Opens the main OKR manager with easy forms
+*🎯 Main Command:*
+• \`/okr\` - Opens the main OKR manager with easy-to-use forms
 
-*📋 Or use quick commands:*
+*📋 Quick Commands:*
 • \`/okr-report\` - Generate team report
+• \`/hello\` - Test bot connection
 • \`/okr-help\` - Show this help
 
-*🚀 Pro Tip:* The new \`/okr\` command gives you user-friendly forms instead of typing complex commands. Much easier!
+*🚀 Pro Tip:* Use \`/okr\` for everything! It gives you beautiful forms instead of typing complex commands.
 
 Try \`/okr\` now! 👆`;
   
@@ -823,28 +856,35 @@ app.command('/hello', async ({ command, ack, say }) => {
   await say('Hello! 👋 OKR Bot with easy forms is running! Use `/okr` to get started with the main menu.');
 });
 
-app.command('/okr-report', async ({ command, ack, say, client }) => {
+app.command('/okr-report', async ({ command, ack, client }) => {
   await ack();
   
-  // Trigger the report generation action
+  // Trigger the report generation
+  if (objectives.length === 0) {
+    await client.chat.postMessage({
+      channel: command.user_id,
+      text: '📊 No OKRs to report on yet. Use `/okr` to create some objectives first!'
+    });
+    return;
+  }
+
+  const totalObjs = objectives.length;
+  const totalKRs = keyResults.length;
+  const avgObjProgress = Math.round(objectives.reduce((sum, obj) => sum + obj.progress, 0) / totalObjs);
+
+  let reportText = `📊 OKR REPORT\n📅 ${new Date().toLocaleDateString()}\n\n`;
+  reportText += `📈 Summary: ${totalObjs} objectives, ${totalKRs} key results\n`;
+  reportText += `📊 Average Progress: ${avgObjProgress}%\n\n`;
+  reportText += `🎯 Objectives:\n`;
+
+  objectives.slice(0, 5).forEach(obj => {
+    const progressEmoji = obj.progress >= 75 ? '🟢' : obj.progress >= 50 ? '🟡' : '🔴';
+    reportText += `${progressEmoji} ${obj.id}: ${obj.title} (${obj.progress}%)\n`;
+  });
+
   await client.chat.postMessage({
     channel: command.user_id,
-    blocks: [
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: '📊 Generating your OKR report...' }
-      },
-      {
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: '📊 Generate Report' },
-            action_id: 'generate_report'
-          }
-        ]
-      }
-    ]
+    text: reportText
   });
 });
 
@@ -860,6 +900,7 @@ app.error((error) => {
     await app.start(port);
     console.log('⚡️ OKR Bot with Modals is running!');
     console.log('🎯 Main command: /okr');
+    console.log('📊 Current data: 0 objectives, 0 key results');
   } catch (error) {
     console.error('💥 Failed to start bot:', error);
     process.exit(1);
