@@ -1,9 +1,3 @@
-require('dotenv').config();
-console.log('🔍 Environment loaded:', {
-  botToken: process.env.SLACK_BOT_TOKEN ? 'SET' : 'MISSING',
-  appToken: process.env.SLACK_APP_TOKEN ? 'SET' : 'MISSING',
-  signingSecret: process.env.SLACK_SIGNING_SECRET ? 'SET' : 'MISSING'
-});
 const { App } = require('@slack/bolt');
 
 const app = new App({
@@ -20,36 +14,161 @@ let objCounter = 1;
 let krCounter = 1;
 
 // Helper function to get user from command
-function getUser(command) {
-  return command.user_name || command.user_id;
+function getUser(body) {
+  return body.user.username || body.user.name || body.user.id;
 }
 
-// === SIMPLIFIED OBJECTIVE COMMANDS ===
+// === MAIN MENU COMMAND ===
 
-// Create Objective: /create-obj "Increase Sales" @john
-app.command('/create-obj', async ({ command, ack, say }) => {
+app.command('/okr', async ({ command, ack, client }) => {
   await ack();
 
   try {
-    const text = command.text.trim();
-    
-    // Parse: "Title" @user or just "Title"
-    const match = text.match(/^"([^"]+)"(?:\s+@?(\w+))?/);
-    
-    if (!match) {
-      await say(`❌ **Usage:** \`/create-obj "Title" [@user]\`
-**Example:** \`/create-obj "Increase Sales" @john\``);
-      return;
-    }
+    await client.views.open({
+      trigger_id: command.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'main_menu',
+        title: { type: 'plain_text', text: '🎯 OKR Manager' },
+        close: { type: 'plain_text', text: 'Close' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: '*Welcome to OKR Manager!* 🚀\n\nWhat would you like to do?' }
+          },
+          { type: 'divider' },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: '🎯 Create Objective' },
+                action_id: 'create_objective',
+                style: 'primary'
+              },
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: '🔑 Create Key Result' },
+                action_id: 'create_key_result'
+              }
+            ]
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: '📈 Update Progress' },
+                action_id: 'update_progress'
+              },
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: '📋 View All OKRs' },
+                action_id: 'view_okrs'
+              }
+            ]
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: '📊 Generate Report' },
+                action_id: 'generate_report'
+              },
+              {
+                type: 'button',
+                text: { type: 'plain_text', text: '🗑️ Delete OKR' },
+                action_id: 'delete_okr',
+                style: 'danger'
+              }
+            ]
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening main menu:', error);
+  }
+});
 
-    const title = match[1];
-    const assignee = match[2] || getUser(command);
+// === CREATE OBJECTIVE MODAL ===
+
+app.action('create_objective', async ({ ack, body, client }) => {
+  await ack();
+
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'create_objective_modal',
+        title: { type: 'plain_text', text: '🎯 Create Objective' },
+        submit: { type: 'plain_text', text: 'Create' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*Creating Objective OBJ${objCounter}*` }
+          },
+          {
+            type: 'input',
+            block_id: 'objective_title',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'title',
+              placeholder: { type: 'plain_text', text: 'e.g., Increase Q3 Revenue' },
+              max_length: 200
+            },
+            label: { type: 'plain_text', text: 'Objective Title' }
+          },
+          {
+            type: 'input',
+            block_id: 'objective_description',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'description',
+              multiline: true,
+              placeholder: { type: 'plain_text', text: 'Optional: Add more details about this objective...' },
+              max_length: 500
+            },
+            label: { type: 'plain_text', text: 'Description (Optional)' },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'objective_owner',
+            element: {
+              type: 'users_select',
+              action_id: 'owner',
+              placeholder: { type: 'plain_text', text: 'Select objective owner' }
+            },
+            label: { type: 'plain_text', text: 'Assign to' }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening create objective modal:', error);
+  }
+});
+
+// Handle objective creation submission
+app.view('create_objective_modal', async ({ ack, body, view, client }) => {
+  await ack();
+
+  try {
+    const values = view.state.values;
+    const title = values.objective_title.title.value;
+    const description = values.objective_description?.description?.value || '';
+    const owner = values.objective_owner.owner.selected_user;
+
     const objId = `OBJ${objCounter++}`;
-
     const objective = {
       id: objId,
       title: title,
-      assignee: assignee,
+      description: description,
+      assignee: owner,
       progress: 0,
       keyResults: [],
       createdAt: new Date()
@@ -57,322 +176,676 @@ app.command('/create-obj', async ({ command, ack, say }) => {
 
     objectives.push(objective);
 
-    await say(`✅ **Objective Created!**
-🎯 **${objId}:** ${title}
-👤 **Assigned to:** @${assignee}
-📊 **Progress:** 0%
-
-💡 Add key results with: \`/kr-create ${objId} "key result text" [@user]\``);
+    // Send success message
+    await client.chat.postMessage({
+      channel: body.user.id,
+      blocks: [
+        {
+          type: 'section',
+          text: { 
+            type: 'mrkdwn', 
+            text: `✅ *Objective Created Successfully!*\n\n🎯 *${objId}:* ${title}\n👤 *Owner:* <@${owner}>\n📊 *Progress:* 0%` 
+          }
+        },
+        {
+          type: 'section',
+          text: { 
+            type: 'mrkdwn', 
+            text: `💡 *Next step:* Add key results to measure progress toward this objective.` 
+          },
+          accessory: {
+            type: 'button',
+            text: { type: 'plain_text', text: '🔑 Add Key Result' },
+            action_id: 'create_key_result',
+            value: objId
+          }
+        }
+      ]
+    });
 
   } catch (error) {
     console.error('Error creating objective:', error);
-    await say('❌ Error creating objective. Please try again.');
   }
 });
 
-// List Objectives: /obj-list or /obj-list @user
-app.command('/obj-list', async ({ command, ack, say }) => {
+// === CREATE KEY RESULT MODAL ===
+
+app.action('create_key_result', async ({ ack, body, client }) => {
   await ack();
 
   try {
-    const filterUser = command.text.trim().replace('@', '');
-    
-    let filteredObjectives = objectives;
-    if (filterUser) {
-      filteredObjectives = objectives.filter(obj => obj.assignee === filterUser);
-    }
+    // Build options for objective selection
+    const objectiveOptions = objectives.map(obj => ({
+      text: { type: 'plain_text', text: `${obj.id}: ${obj.title}` },
+      value: obj.id
+    }));
 
-    if (filteredObjectives.length === 0) {
-      await say(filterUser ? 
-        `📭 No objectives found for @${filterUser}` : 
-        '📭 No objectives created yet. Use `/create-obj "Title" @user` to create one.');
+    if (objectiveOptions.length === 0) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ No objectives found. Please create an objective first using `/okr`.'
+      });
       return;
     }
 
-    let response = `📋 **OBJECTIVES**${filterUser ? ` - @${filterUser}` : ''}\n\n`;
-
-    filteredObjectives.forEach(obj => {
-      const progressEmoji = obj.progress >= 75 ? '🟢' : obj.progress >= 50 ? '🟡' : '🔴';
-      const krCount = keyResults.filter(kr => kr.objectiveId === obj.id).length;
-      
-      response += `${progressEmoji} **${obj.id}:** ${obj.title} (${obj.progress}%)\n`;
-      response += `   👤 @${obj.assignee} | 🔑 ${krCount} key results\n\n`;
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'create_key_result_modal',
+        title: { type: 'plain_text', text: '🔑 Create Key Result' },
+        submit: { type: 'plain_text', text: 'Create' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*Creating Key Result KR${krCounter}*` }
+          },
+          {
+            type: 'input',
+            block_id: 'kr_objective',
+            element: {
+              type: 'static_select',
+              action_id: 'objective',
+              placeholder: { type: 'plain_text', text: 'Select objective' },
+              options: objectiveOptions,
+              initial_option: body.actions?.[0]?.value ? 
+                objectiveOptions.find(opt => opt.value === body.actions[0].value) : 
+                objectiveOptions[0]
+            },
+            label: { type: 'plain_text', text: 'Link to Objective' }
+          },
+          {
+            type: 'input',
+            block_id: 'kr_title',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'title',
+              placeholder: { type: 'plain_text', text: 'e.g., Get 10 new customers' },
+              max_length: 200
+            },
+            label: { type: 'plain_text', text: 'Key Result Description' }
+          },
+          {
+            type: 'input',
+            block_id: 'kr_owner',
+            element: {
+              type: 'users_select',
+              action_id: 'owner',
+              placeholder: { type: 'plain_text', text: 'Select key result owner' }
+            },
+            label: { type: 'plain_text', text: 'Assign to' }
+          }
+        ]
+      }
     });
-
-    response += `💡 Use \`/kr-list OBJ1\` to see key results or \`/update-obj OBJ1 75\` to update progress.`;
-
-    await say(response);
-
   } catch (error) {
-    console.error('Error listing objectives:', error);
-    await say('❌ Error listing objectives.');
+    console.error('Error opening create key result modal:', error);
   }
 });
 
-// Update Objective Progress: /update-obj OBJ1 75
-app.command('/update-obj', async ({ command, ack, say }) => {
+// Handle key result creation submission
+app.view('create_key_result_modal', async ({ ack, body, view, client }) => {
   await ack();
 
   try {
-    const args = command.text.trim().split(' ');
-    const objId = args[0];
-    const progress = parseInt(args[1]);
-
-    if (!objId || isNaN(progress)) {
-      await say(`❌ **Usage:** \`/update-obj OBJ1 75\`
-**Example:** \`/update-obj OBJ1 80\` (sets progress to 80%)`);
-      return;
-    }
+    const values = view.state.values;
+    const objId = values.kr_objective.objective.selected_option.value;
+    const title = values.kr_title.title.value;
+    const owner = values.kr_owner.owner.selected_user;
 
     const objective = objectives.find(obj => obj.id === objId);
     if (!objective) {
-      await say(`❌ Objective ${objId} not found. Use \`/obj-list\` to see available objectives.`);
-      return;
-    }
-
-    const oldProgress = objective.progress;
-    objective.progress = Math.max(0, Math.min(100, progress));
-
-    const progressEmoji = objective.progress >= 75 ? '🟢' : objective.progress >= 50 ? '🟡' : '🔴';
-    const changeEmoji = objective.progress > oldProgress ? '📈' : objective.progress < oldProgress ? '📉' : '➡️';
-
-    await say(`${changeEmoji} **Progress Updated!**
-🎯 **${objId}:** ${objective.title}
-📊 **Progress:** ${oldProgress}% → ${objective.progress}% ${progressEmoji}
-👤 **Owner:** @${objective.assignee}`);
-
-  } catch (error) {
-    console.error('Error updating objective:', error);
-    await say('❌ Error updating objective.');
-  }
-});
-
-// === SIMPLIFIED KEY RESULT COMMANDS ===
-
-// Create Key Result: /kr-create OBJ1 "Increase monthly sales" @jane
-app.command('/kr-create', async ({ command, ack, say }) => {
-  await ack();
-
-  try {
-    const text = command.text.trim();
-    
-    // Parse: OBJ1 "Text" @user or OBJ1 "Text"
-    const match = text.match(/^(\w+)\s+"([^"]+)"(?:\s+@?(\w+))?/);
-    
-    if (!match) {
-      await say(`❌ **Usage:** \`/kr-create OBJ1 "Key result text" [@user]\`
-**Example:** \`/kr-create OBJ1 "Increase monthly sales" @jane\``);
-      return;
-    }
-
-    const objId = match[1];
-    const krText = match[2];
-    const assignee = match[3] || getUser(command);
-
-    const objective = objectives.find(obj => obj.id === objId);
-    if (!objective) {
-      await say(`❌ Objective ${objId} not found. Use \`/obj-list\` to see available objectives.`);
-      return;
+      throw new Error('Objective not found');
     }
 
     const krId = `KR${krCounter++}`;
-
     const keyResult = {
       id: krId,
       objectiveId: objId,
-      text: krText,
-      assignee: assignee,
+      text: title,
+      assignee: owner,
       progress: 0,
       createdAt: new Date()
     };
 
     keyResults.push(keyResult);
 
-    await say(`✅ **Key Result Created!**
-🔑 **${krId}:** ${krText}
-🎯 **For:** ${objId} - ${objective.title}
-👤 **Assigned to:** @${assignee}
-📊 **Progress:** 0%
-
-💡 Update progress with: \`/update-kr ${krId} 50\``);
+    // Send success message
+    await client.chat.postMessage({
+      channel: body.user.id,
+      blocks: [
+        {
+          type: 'section',
+          text: { 
+            type: 'mrkdwn', 
+            text: `✅ *Key Result Created Successfully!*\n\n🔑 *${krId}:* ${title}\n🎯 *For:* ${objId} - ${objective.title}\n👤 *Owner:* <@${owner}>\n📊 *Progress:* 0%` 
+          }
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: '📈 Update Progress' },
+              action_id: 'update_kr_progress',
+              value: krId
+            },
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: '🔑 Add Another KR' },
+              action_id: 'create_key_result',
+              value: objId
+            }
+          ]
+        }
+      ]
+    });
 
   } catch (error) {
     console.error('Error creating key result:', error);
-    await say('❌ Error creating key result.');
   }
 });
 
-// List Key Results: /kr-list OBJ1 or /kr-list @user
-app.command('/kr-list', async ({ command, ack, say }) => {
+// === UPDATE PROGRESS MODAL ===
+
+app.action('update_progress', async ({ ack, body, client }) => {
   await ack();
 
   try {
-    const arg = command.text.trim().replace('@', '');
+    // Build options for all objectives and key results
+    const allItems = [];
     
-    let filteredKRs = keyResults;
-    let title = 'KEY RESULTS';
-
-    if (arg.startsWith('OBJ')) {
-      // Filter by objective
-      filteredKRs = keyResults.filter(kr => kr.objectiveId === arg);
-      const obj = objectives.find(o => o.id === arg);
-      title = obj ? `KEY RESULTS - ${arg}: ${obj.title}` : `KEY RESULTS - ${arg}`;
-    } else if (arg) {
-      // Filter by user
-      filteredKRs = keyResults.filter(kr => kr.assignee === arg);
-      title = `KEY RESULTS - @${arg}`;
-    }
-
-    if (filteredKRs.length === 0) {
-      await say(`📭 No key results found. Use \`/kr-create OBJ1 "text" @user\` to create one.`);
-      return;
-    }
-
-    let response = `🔑 **${title}**\n\n`;
-
-    filteredKRs.forEach(kr => {
-      const progressEmoji = kr.progress >= 75 ? '🟢' : kr.progress >= 50 ? '🟡' : '🔴';
-      const obj = objectives.find(o => o.id === kr.objectiveId);
-      
-      response += `${progressEmoji} **${kr.id}:** ${kr.text} (${kr.progress}%)\n`;
-      response += `   🎯 ${kr.objectiveId}${obj ? ` - ${obj.title}` : ''} | 👤 @${kr.assignee}\n\n`;
+    objectives.forEach(obj => {
+      allItems.push({
+        text: { type: 'plain_text', text: `🎯 ${obj.id}: ${obj.title} (${obj.progress}%)` },
+        value: `obj_${obj.id}`
+      });
     });
 
-    response += `💡 Update progress with: \`/update-kr KR1 75\``;
+    keyResults.forEach(kr => {
+      const obj = objectives.find(o => o.id === kr.objectiveId);
+      allItems.push({
+        text: { type: 'plain_text', text: `🔑 ${kr.id}: ${kr.text} (${kr.progress}%)` },
+        value: `kr_${kr.id}`
+      });
+    });
 
-    await say(response);
+    if (allItems.length === 0) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ No OKRs found. Please create some objectives and key results first using `/okr`.'
+      });
+      return;
+    }
 
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'update_progress_modal',
+        title: { type: 'plain_text', text: '📈 Update Progress' },
+        submit: { type: 'plain_text', text: 'Update' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: '*Update progress for any objective or key result:*' }
+          },
+          {
+            type: 'input',
+            block_id: 'progress_item',
+            element: {
+              type: 'static_select',
+              action_id: 'item',
+              placeholder: { type: 'plain_text', text: 'Select objective or key result' },
+              options: allItems
+            },
+            label: { type: 'plain_text', text: 'Select Item to Update' }
+          },
+          {
+            type: 'input',
+            block_id: 'progress_value',
+            element: {
+              type: 'number_input',
+              action_id: 'value',
+              is_decimal_allowed: false,
+              min_value: '0',
+              max_value: '100',
+              placeholder: { type: 'plain_text', text: 'Enter percentage (0-100)' }
+            },
+            label: { type: 'plain_text', text: 'Progress Percentage' }
+          }
+        ]
+      }
+    });
   } catch (error) {
-    console.error('Error listing key results:', error);
-    await say('❌ Error listing key results.');
+    console.error('Error opening update progress modal:', error);
   }
 });
 
-// Update Key Result Progress: /update-kr KR1 60
-app.command('/update-kr', async ({ command, ack, say }) => {
+// Handle progress update submission
+app.view('update_progress_modal', async ({ ack, body, view, client }) => {
   await ack();
 
   try {
-    const args = command.text.trim().split(' ');
-    const krId = args[0];
-    const progress = parseInt(args[1]);
+    const values = view.state.values;
+    const selectedItem = values.progress_item.item.selected_option.value;
+    const newProgress = parseInt(values.progress_value.value.value);
 
-    if (!krId || isNaN(progress)) {
-      await say(`❌ **Usage:** \`/update-kr KR1 60\`
-**Example:** \`/update-kr KR1 75\` (sets progress to 75%)`);
-      return;
+    const [type, id] = selectedItem.split('_');
+
+    if (type === 'obj') {
+      // Update objective
+      const objective = objectives.find(obj => obj.id === id);
+      if (objective) {
+        const oldProgress = objective.progress;
+        objective.progress = newProgress;
+
+        const progressEmoji = newProgress >= 75 ? '🟢' : newProgress >= 50 ? '🟡' : '🔴';
+        const changeEmoji = newProgress > oldProgress ? '📈' : newProgress < oldProgress ? '📉' : '➡️';
+
+        await client.chat.postMessage({
+          channel: body.user.id,
+          text: `${changeEmoji} *Objective Updated!*\n🎯 *${id}:* ${objective.title}\n📊 *Progress:* ${oldProgress}% → ${newProgress}% ${progressEmoji}`
+        });
+      }
+    } else if (type === 'kr') {
+      // Update key result
+      const keyResult = keyResults.find(kr => kr.id === id);
+      if (keyResult) {
+        const oldProgress = keyResult.progress;
+        keyResult.progress = newProgress;
+
+        // Update related objective progress
+        const relatedKRs = keyResults.filter(kr => kr.objectiveId === keyResult.objectiveId);
+        const avgProgress = Math.round(relatedKRs.reduce((sum, kr) => sum + kr.progress, 0) / relatedKRs.length);
+        
+        const objective = objectives.find(obj => obj.id === keyResult.objectiveId);
+        if (objective) {
+          objective.progress = avgProgress;
+        }
+
+        const progressEmoji = newProgress >= 75 ? '🟢' : newProgress >= 50 ? '🟡' : '🔴';
+        const changeEmoji = newProgress > oldProgress ? '📈' : newProgress < oldProgress ? '📉' : '➡️';
+
+        await client.chat.postMessage({
+          channel: body.user.id,
+          text: `${changeEmoji} *Key Result Updated!*\n🔑 *${id}:* ${keyResult.text}\n📊 *Progress:* ${oldProgress}% → ${newProgress}% ${progressEmoji}\n🎯 *Objective ${keyResult.objectiveId} now at:* ${avgProgress}%`
+        });
+      }
     }
-
-    const keyResult = keyResults.find(kr => kr.id === krId);
-    if (!keyResult) {
-      await say(`❌ Key result ${krId} not found. Use \`/kr-list\` to see available key results.`);
-      return;
-    }
-
-    const oldProgress = keyResult.progress;
-    keyResult.progress = Math.max(0, Math.min(100, progress));
-
-    // Update related objective progress
-    const relatedKRs = keyResults.filter(kr => kr.objectiveId === keyResult.objectiveId);
-    const avgProgress = Math.round(relatedKRs.reduce((sum, kr) => sum + kr.progress, 0) / relatedKRs.length);
-    
-    const objective = objectives.find(obj => obj.id === keyResult.objectiveId);
-    if (objective) {
-      objective.progress = avgProgress;
-    }
-
-    const progressEmoji = keyResult.progress >= 75 ? '🟢' : keyResult.progress >= 50 ? '🟡' : '🔴';
-    const changeEmoji = keyResult.progress > oldProgress ? '📈' : keyResult.progress < oldProgress ? '📉' : '➡️';
-
-    await say(`${changeEmoji} **Key Result Updated!**
-🔑 **${krId}:** ${keyResult.text}
-📊 **Progress:** ${oldProgress}% → ${keyResult.progress}% ${progressEmoji}
-🎯 **Objective ${keyResult.objectiveId} now at:** ${avgProgress}%
-👤 **Owner:** @${keyResult.assignee}`);
 
   } catch (error) {
-    console.error('Error updating key result:', error);
-    await say('❌ Error updating key result.');
+    console.error('Error updating progress:', error);
   }
 });
 
-// === SIMPLE REPORTING ===
+// === VIEW OKRS ACTION ===
 
-// Simple Report: /okr-report
-app.command('/okr-report', async ({ command, ack, say }) => {
+app.action('view_okrs', async ({ ack, body, client }) => {
   await ack();
 
   try {
     if (objectives.length === 0) {
-      await say('📊 No OKRs to report on yet. Create some objectives first!');
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '📭 No objectives found yet. Use `/okr` to create your first objective!'
+      });
       return;
     }
 
-    let response = `📊 **OKR REPORT**\n📅 ${new Date().toLocaleDateString()}\n\n`;
+    let blocks = [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*📋 All Objectives & Key Results*' }
+      },
+      { type: 'divider' }
+    ];
 
-    // Summary
+    objectives.forEach(obj => {
+      const progressEmoji = obj.progress >= 75 ? '🟢' : obj.progress >= 50 ? '🟡' : '🔴';
+      const objKRs = keyResults.filter(kr => kr.objectiveId === obj.id);
+
+      blocks.push({
+        type: 'section',
+        text: { 
+          type: 'mrkdwn', 
+          text: `${progressEmoji} *${obj.id}: ${obj.title}* (${obj.progress}%)\n👤 <@${obj.assignee}> | 🔑 ${objKRs.length} key results` 
+        }
+      });
+
+      objKRs.forEach(kr => {
+        const krProgressEmoji = kr.progress >= 75 ? '🟢' : kr.progress >= 50 ? '🟡' : '🔴';
+        blocks.push({
+          type: 'section',
+          text: { 
+            type: 'mrkdwn', 
+            text: `   ${krProgressEmoji} *${kr.id}:* ${kr.text} (${kr.progress}%) - <@${kr.assignee}>` 
+          }
+        });
+      });
+
+      blocks.push({ type: 'divider' });
+    });
+
+    await client.chat.postMessage({
+      channel: body.user.id,
+      blocks: blocks
+    });
+
+  } catch (error) {
+    console.error('Error viewing OKRs:', error);
+  }
+});
+
+// === GENERATE REPORT ACTION ===
+
+app.action('generate_report', async ({ ack, body, client }) => {
+  await ack();
+
+  try {
+    if (objectives.length === 0) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '📊 No OKRs to report on yet. Create some objectives first!'
+      });
+      return;
+    }
+
     const totalObjs = objectives.length;
     const totalKRs = keyResults.length;
     const avgObjProgress = Math.round(objectives.reduce((sum, obj) => sum + obj.progress, 0) / totalObjs);
     const avgKRProgress = Math.round(keyResults.reduce((sum, kr) => sum + kr.progress, 0) / (totalKRs || 1));
 
-    response += `📈 **SUMMARY:**\n`;
-    response += `• ${totalObjs} objectives, ${totalKRs} key results\n`;
-    response += `• Average objective progress: ${avgObjProgress}%\n`;
-    response += `• Average key result progress: ${avgKRProgress}%\n\n`;
+    let reportBlocks = [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `*📊 OKR REPORT*\n📅 ${new Date().toLocaleDateString()}` }
+      },
+      { type: 'divider' },
+      {
+        type: 'section',
+        fields: [
+          { type: 'mrkdwn', text: `*📈 Summary:*\n• ${totalObjs} objectives\n• ${totalKRs} key results` },
+          { type: 'mrkdwn', text: `*📊 Progress:*\n• Avg Objective: ${avgObjProgress}%\n• Avg Key Result: ${avgKRProgress}%` }
+        ]
+      },
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*🎯 Objectives:*' }
+      }
+    ];
 
-    // Top objectives
-    response += `🎯 **OBJECTIVES:**\n`;
     objectives.slice(0, 5).forEach(obj => {
       const progressEmoji = obj.progress >= 75 ? '🟢' : obj.progress >= 50 ? '🟡' : '🔴';
       const krCount = keyResults.filter(kr => kr.objectiveId === obj.id).length;
-      response += `${progressEmoji} **${obj.id}:** ${obj.title} (${obj.progress}%) - @${obj.assignee} - ${krCount} KRs\n`;
+      reportBlocks.push({
+        type: 'section',
+        text: { 
+          type: 'mrkdwn', 
+          text: `${progressEmoji} *${obj.id}:* ${obj.title} (${obj.progress}%) - <@${obj.assignee}> - ${krCount} KRs` 
+        }
+      });
     });
 
-    await say(response);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      blocks: reportBlocks
+    });
 
   } catch (error) {
     console.error('Error generating report:', error);
-    await say('❌ Error generating report.');
   }
 });
 
-// === HELP COMMAND ===
+// === DELETE OKR MODAL ===
+
+app.action('delete_okr', async ({ ack, body, client }) => {
+  await ack();
+
+  try {
+    const allItems = [];
+    
+    objectives.forEach(obj => {
+      allItems.push({
+        text: { type: 'plain_text', text: `🎯 ${obj.id}: ${obj.title}` },
+        value: `obj_${obj.id}`
+      });
+    });
+
+    keyResults.forEach(kr => {
+      allItems.push({
+        text: { type: 'plain_text', text: `🔑 ${kr.id}: ${kr.text}` },
+        value: `kr_${kr.id}`
+      });
+    });
+
+    if (allItems.length === 0) {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ No OKRs found to delete.'
+      });
+      return;
+    }
+
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'delete_okr_modal',
+        title: { type: 'plain_text', text: '🗑️ Delete OKR' },
+        submit: { type: 'plain_text', text: 'Delete' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: '*⚠️ Warning: This action cannot be undone!*' }
+          },
+          {
+            type: 'input',
+            block_id: 'delete_item',
+            element: {
+              type: 'static_select',
+              action_id: 'item',
+              placeholder: { type: 'plain_text', text: 'Select item to delete' },
+              options: allItems
+            },
+            label: { type: 'plain_text', text: 'Select OKR to Delete' }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening delete modal:', error);
+  }
+});
+
+// Handle delete submission
+app.view('delete_okr_modal', async ({ ack, body, view, client }) => {
+  await ack();
+
+  try {
+    const values = view.state.values;
+    const selectedItem = values.delete_item.item.selected_option.value;
+    const [type, id] = selectedItem.split('_');
+
+    if (type === 'obj') {
+      // Delete objective and related key results
+      const objective = objectives.find(obj => obj.id === id);
+      const relatedKRs = keyResults.filter(kr => kr.objectiveId === id);
+      
+      objectives = objectives.filter(obj => obj.id !== id);
+      keyResults = keyResults.filter(kr => kr.objectiveId !== id);
+
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ *Objective Deleted!*\n🎯 Deleted: "${objective.title}"\n🔑 Also deleted ${relatedKRs.length} related key results`
+      });
+    } else if (type === 'kr') {
+      // Delete key result
+      const keyResult = keyResults.find(kr => kr.id === id);
+      keyResults = keyResults.filter(kr => kr.id !== id);
+
+      // Update related objective progress
+      const relatedKRs = keyResults.filter(kr => kr.objectiveId === keyResult.objectiveId);
+      if (relatedKRs.length > 0) {
+        const avgProgress = Math.round(relatedKRs.reduce((sum, kr) => sum + kr.progress, 0) / relatedKRs.length);
+        const objective = objectives.find(obj => obj.id === keyResult.objectiveId);
+        if (objective) {
+          objective.progress = avgProgress;
+        }
+      }
+
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `✅ *Key Result Deleted!*\n🔑 Deleted: "${keyResult.text}"`
+      });
+    }
+
+  } catch (error) {
+    console.error('Error deleting OKR:', error);
+  }
+});
+
+// === QUICK UPDATE ACTIONS ===
+
+app.action('update_kr_progress', async ({ ack, body, client }) => {
+  await ack();
+
+  const krId = body.actions[0].value;
+  const keyResult = keyResults.find(kr => kr.id === krId);
+
+  if (!keyResult) {
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Key result not found.'
+    });
+    return;
+  }
+
+  try {
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'quick_update_kr_modal',
+        title: { type: 'plain_text', text: '📈 Quick Update' },
+        submit: { type: 'plain_text', text: 'Update' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        private_metadata: krId,
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*Updating: ${krId}*\n${keyResult.text}\n\nCurrent Progress: ${keyResult.progress}%` }
+          },
+          {
+            type: 'input',
+            block_id: 'quick_progress',
+            element: {
+              type: 'number_input',
+              action_id: 'value',
+              is_decimal_allowed: false,
+              min_value: '0',
+              max_value: '100',
+              initial_value: keyResult.progress.toString(),
+              placeholder: { type: 'plain_text', text: 'Enter new percentage' }
+            },
+            label: { type: 'plain_text', text: 'Progress Percentage' }
+          }
+        ]
+      }
+    });
+  } catch (error) {
+    console.error('Error opening quick update modal:', error);
+  }
+});
+
+app.view('quick_update_kr_modal', async ({ ack, body, view, client }) => {
+  await ack();
+
+  try {
+    const krId = view.private_metadata;
+    const newProgress = parseInt(view.state.values.quick_progress.value.value);
+
+    const keyResult = keyResults.find(kr => kr.id === krId);
+    if (keyResult) {
+      const oldProgress = keyResult.progress;
+      keyResult.progress = newProgress;
+
+      // Update related objective progress
+      const relatedKRs = keyResults.filter(kr => kr.objectiveId === keyResult.objectiveId);
+      const avgProgress = Math.round(relatedKRs.reduce((sum, kr) => sum + kr.progress, 0) / relatedKRs.length);
+      
+      const objective = objectives.find(obj => obj.id === keyResult.objectiveId);
+      if (objective) {
+        objective.progress = avgProgress;
+      }
+
+      const progressEmoji = newProgress >= 75 ? '🟢' : newProgress >= 50 ? '🟡' : '🔴';
+      const changeEmoji = newProgress > oldProgress ? '📈' : newProgress < oldProgress ? '📉' : '➡️';
+
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: `${changeEmoji} *Quick Update Complete!*\n🔑 *${krId}:* ${keyResult.text}\n📊 *Progress:* ${oldProgress}% → ${newProgress}% ${progressEmoji}\n🎯 *Objective ${keyResult.objectiveId} now at:* ${avgProgress}%`
+      });
+    }
+
+  } catch (error) {
+    console.error('Error in quick update:', error);
+  }
+});
+
+// === LEGACY COMMANDS FOR BACKWARDS COMPATIBILITY ===
 
 app.command('/okr-help', async ({ command, ack, say }) => {
   await ack();
   
-  const helpText = `🤖 **Simple OKR Bot Help**
+  const helpText = `🤖 *OKR Bot - Now with Easy Forms!*
 
-**📋 OBJECTIVES:**
-• \`/create-obj "Title" [@user]\` - Create objective (auto-numbered OBJ1, OBJ2...)
-• \`/obj-list [@user]\` - List objectives
-• \`/update-obj OBJ1 75\` - Update objective progress (0-100%)
+*🎯 NEW: Use the main menu for everything:*
+• \`/okr\` - Opens the main OKR manager with easy forms
 
-**🔑 KEY RESULTS:**
-• \`/kr-create OBJ1 "Text" [@user]\` - Create key result (auto-numbered KR1, KR2...)
-• \`/kr-list [OBJ1 or @user]\` - List key results
-• \`/update-kr KR1 60\` - Update key result progress (0-100%)
-
-**📊 REPORTING:**
-• \`/okr-report\` - Generate simple report
+*📋 Or use quick commands:*
+• \`/okr-report\` - Generate team report
 • \`/okr-help\` - Show this help
 
-**💡 Quick Start:**
-1. \`/create-obj "Increase Sales" @john\` → Creates OBJ1
-2. \`/kr-create OBJ1 "Get 10 new customers" @jane\` → Creates KR1
-3. \`/update-kr KR1 50\` → Mark KR1 as 50% done
-4. \`/obj-list\` → See all objectives
+*🚀 Pro Tip:* The new \`/okr\` command gives you user-friendly forms instead of typing complex commands. Much easier!
 
-**No dates, no units, no complexity - just simple progress tracking!** 🎯`;
+Try \`/okr\` now! 👆`;
   
   await say(helpText);
 });
 
-// Test command
 app.command('/hello', async ({ command, ack, say }) => {
   await ack();
-  await say('Hello! 👋 Simple OKR Bot is running! Use `/okr-help` for commands.');
+  await say('Hello! 👋 OKR Bot with easy forms is running! Use `/okr` to get started with the main menu.');
+});
+
+app.command('/okr-report', async ({ command, ack, say, client }) => {
+  await ack();
+  
+  // Trigger the report generation action
+  await client.chat.postMessage({
+    channel: command.user_id,
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '📊 Generating your OKR report...' }
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '📊 Generate Report' },
+            action_id: 'generate_report'
+          }
+        ]
+      }
+    ]
+  });
 });
 
 // Error handling
@@ -385,8 +858,8 @@ app.error((error) => {
   try {
     const port = process.env.PORT || 3000;
     await app.start(port);
-    console.log('⚡️ Simple OKR Bot is running!');
-    console.log('📋 Commands: /okr-help');
+    console.log('⚡️ OKR Bot with Modals is running!');
+    console.log('🎯 Main command: /okr');
   } catch (error) {
     console.error('💥 Failed to start bot:', error);
     process.exit(1);
