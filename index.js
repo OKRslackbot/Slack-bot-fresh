@@ -1,8 +1,6 @@
-
-require('dotenv').config(); 
+require('dotenv').config();
 
 const { App } = require('@slack/bolt');
-
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -17,12 +15,7 @@ let keyResults = [];
 let objCounter = 1;
 let krCounter = 1;
 
-// Helper function to get user from command
-function getUser(body) {
-  return body.user.username || body.user.name || body.user.id;
-}
-
-// Add text field to all messages for accessibility
+// Helper function to send messages with accessibility text
 function sendMessage(client, channel, blocks, fallbackText) {
   return client.chat.postMessage({
     channel: channel,
@@ -859,7 +852,7 @@ app.command('/hello', async ({ command, ack, say }) => {
 app.command('/okr-report', async ({ command, ack, client }) => {
   await ack();
   
-  // Trigger the report generation
+  // Generate quick report
   if (objectives.length === 0) {
     await client.chat.postMessage({
       channel: command.user_id,
@@ -898,7 +891,7 @@ app.error((error) => {
   try {
     const port = process.env.PORT || 3000;
     await app.start(port);
-    console.log('⚡️ OKR Bot with Modals is running!');
+    console.log('⚡️ Complete OKR Bot with Modals is running!');
     console.log('🎯 Main command: /okr');
     console.log('📊 Current data: 0 objectives, 0 key results');
   } catch (error) {
