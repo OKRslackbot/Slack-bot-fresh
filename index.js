@@ -1,3 +1,91 @@
+const registeredActions = new Set();
+
+// Modified action registration to prevent duplicates:
+function registerAction(actionId, handler) {
+  if (registeredActions.has(actionId)) {
+    console.log(`⚠️ Action ${actionId} already registered, skipping duplicate`);
+    return;
+  }
+  
+  registeredActions.add(actionId);
+  app.action(actionId, handler);
+  console.log(`✅ Registered action: ${actionId}`);
+}
+
+// Now use this for your create_objective action:
+registerAction('create_objective', async ({ ack, body, client }) => {
+  console.log('🎯 CREATE OBJECTIVE CLICKED!');
+  console.log('User:', body.user.id);
+  
+  await ack();
+  console.log('✅ Acknowledged create_objective action');
+
+  try {
+    console.log('📝 Opening create objective modal...');
+    console.log('Trigger ID:', body.trigger_id);
+    
+    const result = await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'create_objective_modal',
+        title: { type: 'plain_text', text: '🎯 Create Objective' },
+        submit: { type: 'plain_text', text: 'Create' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*Creating Objective OBJ${objCounter}*` }
+          },
+          {
+            type: 'input',
+            block_id: 'objective_title',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'title',
+              placeholder: { type: 'plain_text', text: 'e.g., Increase Q3 Revenue' },
+              max_length: 200
+            },
+            label: { type: 'plain_text', text: 'Objective Title' }
+          },
+          {
+            type: 'input',
+            block_id: 'objective_description',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'description',
+              multiline: true,
+              placeholder: { type: 'plain_text', text: 'Optional: Add more details about this objective...' },
+              max_length: 500
+            },
+            label: { type: 'plain_text', text: 'Description (Optional)' },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'objective_owner',
+            element: {
+              type: 'users_select',
+              action_id: 'owner',
+              placeholder: { type: 'plain_text', text: 'Select objective owner' }
+            },
+            label: { type: 'plain_text', text: 'Assign to' }
+          }
+        ]
+      }
+    });
+    
+    console.log('✅ Modal opened:', result.ok ? 'SUCCESS' : 'FAILED');
+    
+  } catch (error) {
+    console.error('❌ Error:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error opening form. Please try again.'
+    });
+  }
+});
+
 require('dotenv').config();
 
 const { App } = require('@slack/bolt');
