@@ -1,91 +1,3 @@
-const registeredActions = new Set();
-
-// Modified action registration to prevent duplicates:
-function registerAction(actionId, handler) {
-  if (registeredActions.has(actionId)) {
-    console.log(`⚠️ Action ${actionId} already registered, skipping duplicate`);
-    return;
-  }
-  
-  registeredActions.add(actionId);
-  app.action(actionId, handler);
-  console.log(`✅ Registered action: ${actionId}`);
-}
-
-// Now use this for your create_objective action:
-registerAction('create_objective', async ({ ack, body, client }) => {
-  console.log('🎯 CREATE OBJECTIVE CLICKED!');
-  console.log('User:', body.user.id);
-  
-  await ack();
-  console.log('✅ Acknowledged create_objective action');
-
-  try {
-    console.log('📝 Opening create objective modal...');
-    console.log('Trigger ID:', body.trigger_id);
-    
-    const result = await client.views.open({
-      trigger_id: body.trigger_id,
-      view: {
-        type: 'modal',
-        callback_id: 'create_objective_modal',
-        title: { type: 'plain_text', text: '🎯 Create Objective' },
-        submit: { type: 'plain_text', text: 'Create' },
-        close: { type: 'plain_text', text: 'Cancel' },
-        blocks: [
-          {
-            type: 'section',
-            text: { type: 'mrkdwn', text: `*Creating Objective OBJ${objCounter}*` }
-          },
-          {
-            type: 'input',
-            block_id: 'objective_title',
-            element: {
-              type: 'plain_text_input',
-              action_id: 'title',
-              placeholder: { type: 'plain_text', text: 'e.g., Increase Q3 Revenue' },
-              max_length: 200
-            },
-            label: { type: 'plain_text', text: 'Objective Title' }
-          },
-          {
-            type: 'input',
-            block_id: 'objective_description',
-            element: {
-              type: 'plain_text_input',
-              action_id: 'description',
-              multiline: true,
-              placeholder: { type: 'plain_text', text: 'Optional: Add more details about this objective...' },
-              max_length: 500
-            },
-            label: { type: 'plain_text', text: 'Description (Optional)' },
-            optional: true
-          },
-          {
-            type: 'input',
-            block_id: 'objective_owner',
-            element: {
-              type: 'users_select',
-              action_id: 'owner',
-              placeholder: { type: 'plain_text', text: 'Select objective owner' }
-            },
-            label: { type: 'plain_text', text: 'Assign to' }
-          }
-        ]
-      }
-    });
-    
-    console.log('✅ Modal opened:', result.ok ? 'SUCCESS' : 'FAILED');
-    
-  } catch (error) {
-    console.error('❌ Error:', error);
-    await client.chat.postMessage({
-      channel: body.user.id,
-      text: '❌ Error opening form. Please try again.'
-    });
-  }
-});
-
 require('dotenv').config();
 
 const { App } = require('@slack/bolt');
@@ -93,12 +5,10 @@ const { App } = require('@slack/bolt');
 // Add safety net to prevent crashes
 process.on('uncaughtException', (error) => {
   console.error('Something went wrong:', error);
-  // But keep the bot running!
 });
 
 process.on('unhandledRejection', (error) => {
   console.error('Promise error:', error);
-  // But keep the bot running!
 });
 
 const app = new App({
@@ -106,21 +16,7 @@ const app = new App({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: true,
   appToken: process.env.SLACK_APP_TOKEN,
-  // Add extra logging
   logLevel: 'debug'
-});
-
-// ===== DEBUG LOGGING MIDDLEWARE =====
-// Log all incoming events
-app.use(async ({ payload, next }) => {
-  console.log('📥 Incoming event type:', payload.type);
-  if (payload.action_id) {
-    console.log('🔘 Action ID:', payload.action_id);
-  }
-  if (payload.callback_id) {
-    console.log('📋 Callback ID:', payload.callback_id);
-  }
-  await next();
 });
 
 // Simple in-memory storage
@@ -139,14 +35,11 @@ function sendMessage(client, channel, blocks, fallbackText) {
 }
 
 // === MAIN MENU COMMAND ===
-
 app.command('/okr', async ({ command, ack, client }) => {
-  console.log('🎯 /okr command received from user:', command.user_id);
   await ack();
 
   try {
-    console.log('📝 Opening main menu modal...');
-    const result = await client.views.open({
+    await client.views.open({
       trigger_id: command.trigger_id,
       view: {
         type: 'modal',
@@ -209,10 +102,8 @@ app.command('/okr', async ({ command, ack, client }) => {
         ]
       }
     });
-    console.log('✅ Main menu opened successfully!', result.ok);
   } catch (error) {
-    console.error('❌ Error opening main menu:', error);
-    console.error('Error details:', JSON.stringify(error, null, 2));
+    console.error('Error opening main menu:', error);
     await client.chat.postMessage({
       channel: command.user_id,
       text: '❌ Error opening OKR menu. Please try again.'
@@ -220,21 +111,13 @@ app.command('/okr', async ({ command, ack, client }) => {
   }
 });
 
-// === CREATE OBJECTIVE MODAL ===
-
+// === CREATE OBJECTIVE MODAL (FIXED WITH views.push) ===
 app.action('create_objective', async ({ ack, body, client }) => {
-  console.log('🎯 CREATE OBJECTIVE CLICKED!');
-  console.log('User:', body.user.id);
-  
   await ack();
-  console.log('✅ Acknowledged create_objective action');
 
   try {
-    console.log('📝 Attempting to open modal...');
-    console.log('Trigger ID:', body.trigger_id);
-    console.log('objCounter value:', objCounter);
-    
-    const viewPayload = {
+    // Use views.push instead of views.open when already in a modal
+    await client.views.push({
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
@@ -283,43 +166,22 @@ app.action('create_objective', async ({ ack, body, client }) => {
           }
         ]
       }
-    };
-    
-    console.log('📤 Sending view.open request to Slack...');
-    const result = await client.views.open(viewPayload);
-    
-    console.log('✅ Modal open result:', result.ok);
-    if (!result.ok) {
-      console.error('❌ Modal failed to open. Error:', result.error);
-    } else {
-      console.log('✅ Modal should be visible now!');
-    }
-    
+    });
   } catch (error) {
-    console.error('❌ Error opening create objective modal:', error);
-    console.error('Full error details:', JSON.stringify(error, null, 2));
-    console.error('Error stack:', error.stack);
-    
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: `❌ Error opening form: ${error.message}. Please try again.`
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error opening create objective modal:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error opening form. Please try again.'
+    });
   }
 });
 
 // Handle objective creation submission
 app.view('create_objective_modal', async ({ ack, body, view, client }) => {
-  console.log('📋 CREATE OBJECTIVE FORM SUBMITTED!');
   await ack();
 
   try {
     const values = view.state.values;
-    console.log('Form values:', JSON.stringify(values, null, 2));
-    
     const title = values.objective_title.title.value;
     const description = values.objective_description?.description?.value || '';
     const owner = values.objective_owner.owner.selected_user;
@@ -336,7 +198,6 @@ app.view('create_objective_modal', async ({ ack, body, view, client }) => {
     };
 
     objectives.push(objective);
-    console.log('✅ Objective created:', objId);
 
     // Send success message
     await sendMessage(client, body.user.id, [
@@ -363,27 +224,19 @@ app.view('create_objective_modal', async ({ ack, body, view, client }) => {
     ], `Objective Created: ${title}`);
 
   } catch (error) {
-    console.error('❌ Error creating objective:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error creating objective. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error creating objective:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error creating objective. Please try again.'
+    });
   }
 });
 
-// === CREATE KEY RESULT MODAL ===
-
+// === CREATE KEY RESULT MODAL (FIXED WITH views.push) ===
 app.action('create_key_result', async ({ ack, body, client }) => {
-  console.log('🔑 CREATE KEY RESULT CLICKED!');
   await ack();
-  console.log('✅ Acknowledged create_key_result action');
 
   try {
-    // Build options for objective selection
     const objectiveOptions = objectives.map(obj => ({
       text: { type: 'plain_text', text: `${obj.id}: ${obj.title}` },
       value: obj.id
@@ -397,8 +250,10 @@ app.action('create_key_result', async ({ ack, body, client }) => {
       return;
     }
 
-    console.log('📝 Opening key result modal...');
-    await client.views.open({
+    // Check if we're in a modal or in a message
+    const isInModal = body.container?.type === 'view';
+    
+    const viewPayload = {
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
@@ -448,24 +303,25 @@ app.action('create_key_result', async ({ ack, body, client }) => {
           }
         ]
       }
-    });
-    console.log('✅ Key result modal opened');
-  } catch (error) {
-    console.error('❌ Error opening create key result modal:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error opening form. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
+    };
+
+    // Use push if in modal, open if in message
+    if (isInModal) {
+      await client.views.push(viewPayload);
+    } else {
+      await client.views.open(viewPayload);
     }
+  } catch (error) {
+    console.error('Error opening create key result modal:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error opening form. Please try again.'
+    });
   }
 });
 
 // Handle key result creation submission
 app.view('create_key_result_modal', async ({ ack, body, view, client }) => {
-  console.log('📋 CREATE KEY RESULT FORM SUBMITTED!');
   await ack();
 
   try {
@@ -490,7 +346,6 @@ app.view('create_key_result_modal', async ({ ack, body, view, client }) => {
     };
 
     keyResults.push(keyResult);
-    console.log('✅ Key result created:', krId);
 
     // Send success message
     await sendMessage(client, body.user.id, [
@@ -521,26 +376,19 @@ app.view('create_key_result_modal', async ({ ack, body, view, client }) => {
     ], `Key Result Created: ${title}`);
 
   } catch (error) {
-    console.error('❌ Error creating key result:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error creating key result. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error creating key result:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error creating key result. Please try again.'
+    });
   }
 });
 
-// === UPDATE PROGRESS MODAL ===
-
+// === UPDATE PROGRESS MODAL (FIXED WITH views.push) ===
 app.action('update_progress', async ({ ack, body, client }) => {
-  console.log('📈 UPDATE PROGRESS CLICKED!');
   await ack();
 
   try {
-    // Build options for all objectives and key results
     const allItems = [];
     
     objectives.forEach(obj => {
@@ -565,8 +413,7 @@ app.action('update_progress', async ({ ack, body, client }) => {
       return;
     }
 
-    console.log('📝 Opening update progress modal...');
-    await client.views.open({
+    await client.views.push({
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
@@ -606,23 +453,17 @@ app.action('update_progress', async ({ ack, body, client }) => {
         ]
       }
     });
-    console.log('✅ Update progress modal opened');
   } catch (error) {
-    console.error('❌ Error opening update progress modal:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error opening form. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error opening update progress modal:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error opening form. Please try again.'
+    });
   }
 });
 
 // Handle progress update submission
 app.view('update_progress_modal', async ({ ack, body, view, client }) => {
-  console.log('📋 UPDATE PROGRESS FORM SUBMITTED!');
   await ack();
 
   try {
@@ -633,7 +474,6 @@ app.view('update_progress_modal', async ({ ack, body, view, client }) => {
     const [type, id] = selectedItem.split('_');
 
     if (type === 'obj') {
-      // Update objective
       const objective = objectives.find(obj => obj.id === id);
       if (objective) {
         const oldProgress = objective.progress;
@@ -648,13 +488,11 @@ app.view('update_progress_modal', async ({ ack, body, view, client }) => {
         });
       }
     } else if (type === 'kr') {
-      // Update key result
       const keyResult = keyResults.find(kr => kr.id === id);
       if (keyResult) {
         const oldProgress = keyResult.progress;
         keyResult.progress = newProgress;
 
-        // Update related objective progress
         const relatedKRs = keyResults.filter(kr => kr.objectiveId === keyResult.objectiveId);
         const avgProgress = Math.round(relatedKRs.reduce((sum, kr) => sum + kr.progress, 0) / relatedKRs.length);
         
@@ -674,22 +512,16 @@ app.view('update_progress_modal', async ({ ack, body, view, client }) => {
     }
 
   } catch (error) {
-    console.error('❌ Error updating progress:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error updating progress. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error updating progress:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error updating progress. Please try again.'
+    });
   }
 });
 
 // === VIEW OKRS ACTION ===
-
 app.action('view_okrs', async ({ ack, body, client }) => {
-  console.log('📋 VIEW OKRS CLICKED!');
   await ack();
 
   try {
@@ -738,22 +570,16 @@ app.action('view_okrs', async ({ ack, body, client }) => {
     await sendMessage(client, body.user.id, blocks, 'All Objectives & Key Results');
 
   } catch (error) {
-    console.error('❌ Error viewing OKRs:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error viewing OKRs. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error viewing OKRs:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error viewing OKRs. Please try again.'
+    });
   }
 });
 
 // === GENERATE REPORT ACTION ===
-
 app.action('generate_report', async ({ ack, body, client }) => {
-  console.log('📊 GENERATE REPORT CLICKED!');
   await ack();
 
   try {
@@ -805,22 +631,16 @@ app.action('generate_report', async ({ ack, body, client }) => {
     await sendMessage(client, body.user.id, reportBlocks, `OKR Report - ${totalObjs} objectives, ${totalKRs} key results`);
 
   } catch (error) {
-    console.error('❌ Error generating report:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error generating report. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error generating report:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error generating report. Please try again.'
+    });
   }
 });
 
-// === DELETE OKR MODAL ===
-
+// === DELETE OKR MODAL (FIXED WITH views.push) ===
 app.action('delete_okr', async ({ ack, body, client }) => {
-  console.log('🗑️ DELETE OKR CLICKED!');
   await ack();
 
   try {
@@ -848,8 +668,7 @@ app.action('delete_okr', async ({ ack, body, client }) => {
       return;
     }
 
-    console.log('📝 Opening delete OKR modal...');
-    await client.views.open({
+    await client.views.push({
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
@@ -876,23 +695,17 @@ app.action('delete_okr', async ({ ack, body, client }) => {
         ]
       }
     });
-    console.log('✅ Delete OKR modal opened');
   } catch (error) {
-    console.error('❌ Error opening delete modal:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error opening form. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error opening delete modal:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error opening form. Please try again.'
+    });
   }
 });
 
 // Handle delete submission
 app.view('delete_okr_modal', async ({ ack, body, view, client }) => {
-  console.log('📋 DELETE OKR FORM SUBMITTED!');
   await ack();
 
   try {
@@ -901,7 +714,6 @@ app.view('delete_okr_modal', async ({ ack, body, view, client }) => {
     const [type, id] = selectedItem.split('_');
 
     if (type === 'obj') {
-      // Delete objective and related key results
       const objective = objectives.find(obj => obj.id === id);
       const relatedKRs = keyResults.filter(kr => kr.objectiveId === id);
       
@@ -913,11 +725,9 @@ app.view('delete_okr_modal', async ({ ack, body, view, client }) => {
         text: `✅ Objective Deleted! Deleted: "${objective.title}" and ${relatedKRs.length} related key results`
       });
     } else if (type === 'kr') {
-      // Delete key result
       const keyResult = keyResults.find(kr => kr.id === id);
       keyResults = keyResults.filter(kr => kr.id !== id);
 
-      // Update related objective progress
       const relatedKRs = keyResults.filter(kr => kr.objectiveId === keyResult.objectiveId);
       if (relatedKRs.length > 0) {
         const avgProgress = Math.round(relatedKRs.reduce((sum, kr) => sum + kr.progress, 0) / relatedKRs.length);
@@ -934,22 +744,16 @@ app.view('delete_okr_modal', async ({ ack, body, view, client }) => {
     }
 
   } catch (error) {
-    console.error('❌ Error deleting OKR:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error deleting OKR. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error deleting OKR:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error deleting OKR. Please try again.'
+    });
   }
 });
 
 // === QUICK UPDATE ACTIONS ===
-
 app.action('update_kr_progress', async ({ ack, body, client }) => {
-  console.log('📈 UPDATE KR PROGRESS CLICKED!');
   await ack();
 
   try {
@@ -964,8 +768,8 @@ app.action('update_kr_progress', async ({ ack, body, client }) => {
       return;
     }
 
-    console.log('📝 Opening quick update modal...');
-    await client.views.open({
+    const isInModal = body.container?.type === 'view';
+    const viewPayload = {
       trigger_id: body.trigger_id,
       view: {
         type: 'modal',
@@ -995,23 +799,23 @@ app.action('update_kr_progress', async ({ ack, body, client }) => {
           }
         ]
       }
-    });
-    console.log('✅ Quick update modal opened');
-  } catch (error) {
-    console.error('❌ Error opening quick update modal:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error opening form. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
+    };
+
+    if (isInModal) {
+      await client.views.push(viewPayload);
+    } else {
+      await client.views.open(viewPayload);
     }
+  } catch (error) {
+    console.error('Error opening quick update modal:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error opening form. Please try again.'
+    });
   }
 });
 
 app.view('quick_update_kr_modal', async ({ ack, body, view, client }) => {
-  console.log('📋 QUICK UPDATE KR FORM SUBMITTED!');
   await ack();
 
   try {
@@ -1023,7 +827,6 @@ app.view('quick_update_kr_modal', async ({ ack, body, view, client }) => {
       const oldProgress = keyResult.progress;
       keyResult.progress = newProgress;
 
-      // Update related objective progress
       const relatedKRs = keyResults.filter(kr => kr.objectiveId === keyResult.objectiveId);
       const avgProgress = Math.round(relatedKRs.reduce((sum, kr) => sum + kr.progress, 0) / relatedKRs.length);
       
@@ -1042,22 +845,16 @@ app.view('quick_update_kr_modal', async ({ ack, body, view, client }) => {
     }
 
   } catch (error) {
-    console.error('❌ Error in quick update:', error);
-    try {
-      await client.chat.postMessage({
-        channel: body.user.id,
-        text: '❌ Error updating progress. Please try again.'
-      });
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    console.error('Error in quick update:', error);
+    await client.chat.postMessage({
+      channel: body.user.id,
+      text: '❌ Error updating progress. Please try again.'
+    });
   }
 });
 
-// === LEGACY COMMANDS FOR BACKWARDS COMPATIBILITY ===
-
+// === LEGACY COMMANDS ===
 app.command('/okr-help', async ({ command, ack, say }) => {
-  console.log('ℹ️ /okr-help command received');
   await ack();
   
   try {
@@ -1082,7 +879,6 @@ Try \`/okr\` now! 👆`;
 });
 
 app.command('/hello', async ({ command, ack, say }) => {
-  console.log('👋 /hello command received');
   await ack();
   
   try {
@@ -1093,11 +889,9 @@ app.command('/hello', async ({ command, ack, say }) => {
 });
 
 app.command('/okr-report', async ({ command, ack, client }) => {
-  console.log('📊 /okr-report command received');
   await ack();
   
   try {
-    // Generate quick report
     if (objectives.length === 0) {
       await client.chat.postMessage({
         channel: command.user_id,
@@ -1132,12 +926,6 @@ app.command('/okr-report', async ({ command, ack, client }) => {
 // Error handling
 app.error((error) => {
   console.error('🚨 Slack app error:', error);
-  console.error('Error details:', {
-    code: error.code,
-    data: error.data,
-    stack: error.stack
-  });
-  // Don't crash, just log the error
 });
 
 // Handle graceful shutdown
@@ -1151,9 +939,6 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// === DEBUG: Log all event types we're receiving ===
-console.log('🔍 Setting up debug event listeners...');
-
 // Start the app
 (async () => {
   try {
@@ -1162,10 +947,7 @@ console.log('🔍 Setting up debug event listeners...');
     console.log('⚡️ Complete OKR Bot with Modals is running!');
     console.log('🎯 Main command: /okr');
     console.log('📊 Current data: 0 objectives, 0 key results');
-    console.log('✅ All error handling in place!');
-    console.log('🔍 Debug logging enabled!');
-    console.log('');
-    console.log('📝 Watching for events...');
+    console.log('✅ All fixes applied: views.push for modal stacking');
   } catch (error) {
     console.error('💥 Failed to start bot:', error);
     process.exit(1);
