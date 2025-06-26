@@ -1,6 +1,94 @@
 require('dotenv').config();
 
 const { App } = require('@slack/bolt');
+// Add this right after your app initialization (after const app = new App({...}))
+
+// Log all incoming events
+app.use(async ({ payload, next }) => {
+  console.log('📥 Incoming event type:', payload.type);
+  if (payload.action_id) {
+    console.log('🔘 Action ID:', payload.action_id);
+  }
+  await next();
+});
+
+// Also modify your create_objective action to have more logging:
+app.action('create_objective', async ({ ack, body, client }) => {
+  console.log('🎯 CREATE OBJECTIVE CLICKED!'); // Add this line
+  
+  await ack();
+  console.log('✅ Acknowledged create_objective action'); // Add this line
+
+  try {
+    console.log('📝 Attempting to open modal...'); // Add this line
+    console.log('Trigger ID:', body.trigger_id); // Add this line
+    
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'create_objective_modal',
+        title: { type: 'plain_text', text: '🎯 Create Objective' },
+        submit: { type: 'plain_text', text: 'Create' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*Creating Objective OBJ${objCounter}*` }
+          },
+          {
+            type: 'input',
+            block_id: 'objective_title',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'title',
+              placeholder: { type: 'plain_text', text: 'e.g., Increase Q3 Revenue' },
+              max_length: 200
+            },
+            label: { type: 'plain_text', text: 'Objective Title' }
+          },
+          {
+            type: 'input',
+            block_id: 'objective_description',
+            element: {
+              type: 'plain_text_input',
+              action_id: 'description',
+              multiline: true,
+              placeholder: { type: 'plain_text', text: 'Optional: Add more details about this objective...' },
+              max_length: 500
+            },
+            label: { type: 'plain_text', text: 'Description (Optional)' },
+            optional: true
+          },
+          {
+            type: 'input',
+            block_id: 'objective_owner',
+            element: {
+              type: 'users_select',
+              action_id: 'owner',
+              placeholder: { type: 'plain_text', text: 'Select objective owner' }
+            },
+            label: { type: 'plain_text', text: 'Assign to' }
+          }
+        ]
+      }
+    });
+    
+    console.log('✅ Modal should be open now!'); // Add this line
+    
+  } catch (error) {
+    console.error('❌ Error opening create objective modal:', error);
+    console.error('Full error details:', JSON.stringify(error, null, 2)); // Add this line
+    try {
+      await client.chat.postMessage({
+        channel: body.user.id,
+        text: '❌ Error opening form. Please try again.'
+      });
+    } catch (e) {
+      console.error('Error sending error message:', e);
+    }
+  }
+});
 
 // Add safety net to prevent crashes
 process.on('uncaughtException', (error) => {
