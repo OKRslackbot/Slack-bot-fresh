@@ -96,7 +96,9 @@ app.command('/okr', async ({ command, ack, client }) => {
                 text: { type: 'plain_text', text: '🗑️ Delete OKR' },
                 action_id: 'delete_okr',
                 style: 'danger'
-              },
+              }
+            ]
+          },
               {
   type: 'actions',
   elements: [
@@ -115,8 +117,6 @@ app.command('/okr', async ({ command, ack, client }) => {
             }
             ]
           }
-        ]
-      }
     });
   } catch (error) {
     console.error('Error opening main menu:', error);
