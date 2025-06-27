@@ -96,7 +96,23 @@ app.command('/okr', async ({ command, ack, client }) => {
                 text: { type: 'plain_text', text: '🗑️ Delete OKR' },
                 action_id: 'delete_okr',
                 style: 'danger'
-              }
+              },
+              {
+  type: 'actions',
+  elements: [
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: '📅 Weekly Check-in' },
+      action_id: 'weekly_checkin',
+      style: 'primary'
+    },
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: '📊 Quarter Review' },
+      action_id: 'quarter_review'
+    }
+  ]
+            }
             ]
           }
         ]
